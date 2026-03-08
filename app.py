@@ -1,43 +1,64 @@
 import streamlit as st
 import requests
+import time
+from collections import Counter
 
 st.set_page_config(page_title="고래 추적기", layout="centered")
-st.title("🐋 모시의 온체인 커플링 추적기")
-st.write("형! 의심되는 코인 두 개의 '컨트랙트 주소(Contract Address)'를 넣으면, 양다리 걸친 고래가 있는지 1초 만에 싹 뒤져볼게유.")
+st.title("🐋 모시의 온체인 커플링 자동 분석기")
+st.write("형! 코인 주소 '하나'만 딱 넣으세유. 고래들이 이 코인 말고 또 뭘 몰래 매집하고 있는지 싹 다 털어올게유.")
 
-# 폰 화면에 입력칸 만들기
-token_a = st.text_input("🔍 첫 번째 코인 주소 (예: 0xdac17f958d2ee523a2206206994597c13d831ec7)")
-token_b = st.text_input("🔍 두 번째 코인 주소 (예: 0x514910771af9ca656af840dff83e8264ecf986ca)")
+# 코인 주소 하나만 입력받기
+token_address = st.text_input("🔍 분석할 코인의 컨트랙트 주소 (예: 0xdac1... )")
 
-if st.button("고래 지갑 털어보기 🚀"):
-    if token_a and token_b:
-        st.info("열심히 블록체인을 뒤지고 있어유... 쫌만 기다려봐유!")
+if st.button("자동 커플링 코인 찾기 🚀"):
+    if token_address:
+        st.info("고래 명단을 확보하고, 그놈들 지갑을 하나씩 뜯어보고 있어유. 쪼끔만 기다리셔유!")
+        
         try:
-            # 무료 공용 API를 써서 고래 100명 명단 빼오기
-            url_a = f"https://api.ethplorer.io/getTopTokenHolders/{token_a}?apiKey=freekey&limit=100"
-            url_b = f"https://api.ethplorer.io/getTopTokenHolders/{token_b}?apiKey=freekey&limit=100"
-
-            res_a = requests.get(url_a).json()
-            res_b = requests.get(url_b).json()
-
-            if 'holders' in res_a and 'holders' in res_b:
-                # 명단에서 지갑 주소만 쏙쏙 뽑아내기
-                holders_a = set([h['address'] for h in res_a['holders']])
-                holders_b = set([h['address'] for h in res_b['holders']])
-
-                # 양다리 걸친 놈팽이들 찾기 (교집합)
-                coupled = holders_a.intersection(holders_b)
-
-                if len(coupled) > 0:
-                    st.success(f"🚨 찾았슈! 총 {len(coupled)}명의 거대 고래가 두 코인을 꽉 쥐고 있어유!")
-                    st.write("이 코인들은 한 놈팽이가 장난칠 때 같이 폭락하거나 폭등할 확률이 아주 높아유. 타점 잡을 때 조심하세유!")
-                    for w in coupled:
-                        st.code(w)
-                else:
-                    st.warning("형, 이 두 코인은 겹치는 고래가 없어유. 각자 따로 노는 코인들이어유.")
+            # 1단계: A코인 상위 고래 명단 가져오기 (서버 무리 안 가게 일단 상위 10명만)
+            url_holders = f"https://api.ethplorer.io/getTopTokenHolders/{token_address}?apiKey=freekey&limit=10"
+            res_holders = requests.get(url_holders).json()
+            
+            if 'holders' in res_holders:
+                holders = [h['address'] for h in res_holders['holders']]
+                
+                st.write(f"✅ 거대 고래 {len(holders)}마리 포착 완료! 이제 이놈들 주머니를 뒤집니다...")
+                
+                all_tokens = []
+                progress_bar = st.progress(0)
+                
+                # 2단계: 고래 10명의 지갑을 하나하나 열어서 무슨 코인 있는지 싹 다 수집
+                for i, wallet in enumerate(holders):
+                    url_wallet = f"https://api.ethplorer.io/getAddressInfo/{wallet}?apiKey=freekey"
+                    res_wallet = requests.get(url_wallet).json()
+                    
+                    if 'tokens' in res_wallet:
+                        for token in res_wallet['tokens']:
+                            # 코인 이름이나 심볼 가져오기
+                            token_name = token.get('tokenInfo', {}).get('symbol', '이름없는코인')
+                            all_tokens.append(token_name)
+                    
+                    # 무료 API 뻗지 말라고 살짝 쉬어주기
+                    time.sleep(0.5) 
+                    progress_bar.progress((i + 1) / len(holders))
+                
+                # 3단계: 고래들이 공통으로 가장 많이 가진 코인 통계 내기
+                token_counts = Counter(all_tokens)
+                # 너무 흔한 이더리움이나 스테이블 코인은 제외하고 싶다면 여기서 필터링 가능해유
+                
+                st.success("🎉 분석 끝났슈! 이 코인과 함께 움직일 확률이 높은 '커플링 코인' 순위여유!")
+                
+                # 가장 많이 겹치는 코인 Top 5 보여주기
+                top_5_coupled = token_counts.most_common(5)
+                for rank, (coin, count) in enumerate(top_5_coupled, 1):
+                    st.markdown(f"**{rank}위: {coin}** (고래 {len(holders)}명 중 {count}명이 같이 들고 있어유!)")
+                    
+                st.warning("💡 형, 얘네들이 물량 한꺼번에 털어낼(덤핑) 때 이 순위권 코인들도 같이 폭락할 수 있으니 타점 잡을 때 꼬옥 참고하셔유!")
+                
             else:
-                st.error("앗! 주소가 잘못됐거나 데이터를 못 불러왔슈. 이더리움 기반 코인 주소가 맞는지 확인해봐유.")
+                st.error("주소가 잘못됐거나 고래 명단을 못 불러왔슈. 이더리움 네트워크 코인이 맞나 확인해봐유.")
+                
         except Exception as e:
-            st.error("서버에 잠깐 문제가 생겼나봐유. 다시 한 번 눌러봐유!")
+            st.error("앗, 고래들 지갑 뒤지다가 쫓겨났슈. 무료 API라 막혔나 봐유. 쫌 이따 다시 해보셔유!")
     else:
-        st.warning("형, 코인 주소 두 개를 싹 다 넣어주셔야 분석을 하쥬!")
+        st.warning("형, 빈칸인디유? 코인 주소를 넣어주셔야 일을 하쥬!")
